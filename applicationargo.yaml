@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argoapp-argo-application
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/ngocdung12112000/sd5804_aws_infrastructure.git
+    targetRevision: HEAD
+    path: Manifest
+  destination: 
+    server: https://kubernetes.default.svc
+    namespace: argoapp
+
+  syncPolicy:
+    syncOptions:
+    - CreateNamespace=true
+
+    automated:
+      selfHeal: true
+      prune: true
