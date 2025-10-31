@@ -4,10 +4,10 @@ trigger:
       - main
 
 pool:
-  name: BNDZ  
+  name: SD1087TUHUYNH  
 
 variables:
-  dockerRegistryServiceConnection: 'bndzConnect'
+  dockerRegistryServiceConnection: 'SD1087Connection'
   kubernetesServiceConnection: 'AzureKubernetesServiceSC'
   containerRegistry: 'bndzacr.azurecr.io'
   frontendImageName: 'frontend'
