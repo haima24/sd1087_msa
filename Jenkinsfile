@@ -4,7 +4,7 @@ pipeline {
 
     environment {
         AWS_REGION                  = 'ap-southeast-1' 
-        AWS_ACCOUNT_ID              = '811492260998' 
+        AWS_ACCOUNT_ID              = '001746151322' 
         FRONTEND_ECR_REPOSITORY_NAME= 'bndz/frontend' 
         BACKEND_ECR_REPOSITORY_NAME = 'bndz/backend'  
         EKS_CLUSTER_NAME            = 'my-eks-cluster'  
