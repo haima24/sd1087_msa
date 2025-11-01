@@ -28,7 +28,7 @@ spec:
     spec:
       containers:
         - name: react-app
-          image: bndzacr.azurecr.io/frontend:latest
+          image: sd1087tuhuynhacr.azurecr.io/frontend:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 3000
