@@ -21,7 +21,7 @@ export default class App extends React.Component {
           todos: response.data.data,
         });
       })
-      .catch((e) => console.log("Error : ", e));
+      .catch((e) => console.log("Error: ", e));
   }
 
   handleAddTodo = (value) => {
