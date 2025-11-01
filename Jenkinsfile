@@ -17,7 +17,10 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                checkout scm
+                // Retry checkout up to 2 times if it fails (e.g., after Jenkins restart)
+                retry(2) {
+                    checkout scm
+                }
                 script {
                     // Create a unique build tag
                     env.BUILD_TAG = "ver-${BUILD_NUMBER}"
@@ -44,7 +47,6 @@ pipeline {
                             script {
                                 def fullImageName = "${env.BACKEND_ECR_URL}:${env.BUILD_TAG}"
                                 echo "Building Backend Image: ${fullImageName}"
-                                // Login to ECR using IAM role (AWS CLI v2 method)
                                 sh "aws ecr get-login-password --region ${env.AWS_REGION} | docker login --username AWS --password-stdin ${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
                                 docker.build(fullImageName, ".")
                                 echo "Pushing Backend Image: ${fullImageName}"
@@ -77,8 +79,7 @@ pipeline {
                     sh """
                         cat Manifest-AWS/mongodb.yaml
                         kubectl --kubeconfig ${env.KUBECONFIG_PATH} apply -f Manifest-AWS/mongodb.yaml --namespace=${env.K8S_NAMESPACE}
-                        """
-
+                    """
 
                     env.BACKEND_IMAGE_URI = "${env.BACKEND_ECR_URL}:${env.BUILD_TAG}"
                     if (env.BACKEND_IMAGE_URI) {
@@ -111,15 +112,13 @@ pipeline {
     post {
         always {
             echo 'Pipeline finished.'
-            // cleanWs() // Clean up workspace
+            cleanWs() // Clean up workspace after every build to prevent disk issues
         }
         success {
             echo 'Pipeline Succeeded!'
-            // Add notifications (Email, Slack, etc.)
         }
         failure {
             echo 'Pipeline Failed!'
-            // Add notifications
         }
     }
 }
