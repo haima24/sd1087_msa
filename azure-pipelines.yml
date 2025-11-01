@@ -4,85 +4,111 @@ trigger:
       - main
 
 pool:
-  name: SD1087TUHUYNH  
+  name: Default
 
 variables:
-  dockerRegistryServiceConnection: 'SD1087Connection'
-  kubernetesServiceConnection: 'AzureKubernetesServiceSC'
-  containerRegistry: 'bndzacr.azurecr.io'
+  # Azure Container Registry
+  containerRegistry: 'sd1087tuhuynhacr.azurecr.io'
+  acrUsername: 'sd1087tuhuynhACR'
+  acrPassword: 'test'
+
+  # Docker images
   frontendImageName: 'frontend'
   backendImageName: 'backend'
   imageTag: '$(Build.BuildId)'
-  imageUri: $(containerRegistry)/$(backendImageName):$(imageTag)
+  backendImageUri: $(containerRegistry)/$(backendImageName):$(imageTag)
+  frontendImageUri: $(containerRegistry)/$(frontendImageName):$(imageTag)
+
+  # Kubernetes
+  kubernetesServiceConnection: 'AzureKubernetesServiceSC'
+  namespace: 'default'
+  storageClassName: 'gp2'  # existing StorageClass in your cluster
 
 stages:
+
+# ----------------------------
+# Stage 1: Build and Push Docker Images
+# ----------------------------
 - stage: BuildAndPush
   displayName: Build and Push Docker Images
   jobs:
   - job: BuildPushJob
     displayName: Build and Push Frontend and Backend
     steps:
-    - task: Docker@2
+
+    # Login to ACR
+    - task: Bash@3
       displayName: Login to ACR
       inputs:
-        command: login
-        containerRegistry: $(dockerRegistryServiceConnection)
+        targetType: 'inline'
+        script: |
+          echo "$(acrPassword)" | docker login $(containerRegistry) -u $(acrUsername) --password-stdin
 
-    # Build Frontend Docker Image
+    # Build Frontend
     - task: Docker@2
       displayName: Build frontend Docker image
       inputs:
-        containerRegistry: $(dockerRegistryServiceConnection)
-        repository: $(frontendImageName)
+        repository: $(frontendImageUri)
         command: build
         Dockerfile: src/frontend/Dockerfile
         tags: |
           $(imageTag)
         buildContext: src/frontend
 
-    # Push Frontend Docker Image
+    # Push Frontend
     - task: Docker@2
       displayName: Push frontend Docker image
       inputs:
-        containerRegistry: $(dockerRegistryServiceConnection)
-        repository: $(frontendImageName)
+        repository: $(frontendImageUri)
         command: push
         tags: |
           $(imageTag)
 
-    # Build Backend Docker Image
+    # Build Backend
     - task: Docker@2
       displayName: Build backend Docker image
       inputs:
-        containerRegistry: $(dockerRegistryServiceConnection)
-        repository: $(backendImageName)
+        repository: $(backendImageUri)
         command: build
         Dockerfile: src/backend/Dockerfile
         tags: |
           $(imageTag)
         buildContext: src/backend
 
-    # Push Backend Docker Image
+    # Push Backend
     - task: Docker@2
       displayName: Push backend Docker image
       inputs:
-        containerRegistry: $(dockerRegistryServiceConnection)
-        repository: $(backendImageName)
+        repository: $(backendImageUri)
         command: push
         tags: |
           $(imageTag)
 
+    # Update backend.yaml image tag
     - task: Bash@3
       displayName: Update backend.yaml image tag
       inputs:
         targetType: 'inline'
         script: |
-          sed -i "s|image:.*|image: $(imageUri)|g" Manifest-Azure/backend.yaml
+          sed -i "s|image:.*|image: $(backendImageUri)|g" Manifest-Azure/backend.yaml
 
+    # Update frontend.yaml image tag
+    - task: Bash@3
+      displayName: Update frontend.yaml image tag
+      inputs:
+        targetType: 'inline'
+        script: |
+          sed -i "s|image:.*|image: $(frontendImageUri)|g" Manifest-Azure/frontend.yaml
+
+    # Publish manifests
     - publish: Manifest-Azure/backend.yaml
-      artifact: manifest
+      artifact: backend-manifest
+    - publish: Manifest-Azure/frontend.yaml
+      artifact: frontend-manifest
 
-
+# ----------------------------
+# Stage 2: Deploy to AKS
+# ----------------------------
 - stage: Deploy
   displayName: Deploy to AKS
   jobs:
@@ -92,6 +118,24 @@ stages:
 
     - checkout: self
 
+    # ------------------------------
+    # Delete existing MongoDB StatefulSet (keep PVCs)
+    # ------------------------------
+    - task: Bash@3
+      displayName: Delete existing MongoDB StatefulSet
+      inputs:
+        targetType: 'inline'
+        script: |
+          if kubectl get statefulset mongo -n $(namespace) &> /dev/null; then
+            echo "Deleting existing StatefulSet 'mongo'..."
+            kubectl delete statefulset mongo -n $(namespace)
+          else
+            echo "StatefulSet 'mongo' does not exist, skipping delete."
+          fi
+
+    # ------------------------------
+    # Deploy MongoDB manifest
+    # ------------------------------
     - task: Kubernetes@1
       displayName: Deploy MongoDB
       inputs:
@@ -102,6 +146,9 @@ stages:
         useConfigurationFile: true
         configuration: Manifest-Azure/mongodb.yaml
 
+    # ------------------------------
+    # Deploy Backend
+    # ------------------------------
     - task: Kubernetes@1
       displayName: Deploy Backend
       inputs:
@@ -112,6 +159,9 @@ stages:
         useConfigurationFile: true
         configuration: Manifest-Azure/backend.yaml
 
+    # ------------------------------
+    # Deploy Frontend
+    # ------------------------------
     - task: Kubernetes@1
       displayName: Deploy Frontend
       inputs:
