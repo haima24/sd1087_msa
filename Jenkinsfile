@@ -17,9 +17,7 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                retry(2) {
-                    checkout scm
-                }
+                retry(2) { checkout scm }
                 script {
                     env.BUILD_TAG = "ver-${BUILD_NUMBER}"
                     echo "Build Tag: ${env.BUILD_TAG}"
@@ -43,11 +41,16 @@ pipeline {
                     steps {
                         dir('backend') {
                             script {
-                                def fullImageName = "${env.BACKEND_ECR_URL}:${env.BUILD_TAG}"
-                                echo "Building Backend Image: ${fullImageName}"
-                                sh "aws ecr get-login-password --region ${env.AWS_REGION} | docker login --username AWS --password-stdin ${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
-                                docker.build(fullImageName, ".")
-                                docker.image(fullImageName).push()
+                                def buildImage = "${env.BACKEND_ECR_URL}:${env.BUILD_TAG}"
+                                def latestImage = "${env.BACKEND_ECR_URL}:latest"
+                                echo "Building Backend Image: ${buildImage}"
+                                sh """
+                                    aws ecr get-login-password --region ${env.AWS_REGION} | docker login --username AWS --password-stdin ${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com
+                                    docker build -t ${buildImage} .
+                                    docker push ${buildImage}
+                                    docker tag ${buildImage} ${latestImage}
+                                    docker push ${latestImage}
+                                """
                             }
                         }
                     }
@@ -58,11 +61,16 @@ pipeline {
                     steps {
                         dir('frontend') {
                             script {
-                                def fullImageName = "${env.FRONTEND_ECR_URL}:${env.BUILD_TAG}"
-                                echo "Building Frontend Image: ${fullImageName}"
-                                sh "aws ecr get-login-password --region ${env.AWS_REGION} | docker login --username AWS --password-stdin ${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
-                                docker.build(fullImageName, ".")
-                                docker.image(fullImageName).push()
+                                def buildImage = "${env.FRONTEND_ECR_URL}:${env.BUILD_TAG}"
+                                def latestImage = "${env.FRONTEND_ECR_URL}:latest"
+                                echo "Building Frontend Image: ${buildImage}"
+                                sh """
+                                    aws ecr get-login-password --region ${env.AWS_REGION} | docker login --username AWS --password-stdin ${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com
+                                    docker build -t ${buildImage} .
+                                    docker push ${buildImage}
+                                    docker tag ${buildImage} ${latestImage}
+                                    docker push ${latestImage}
+                                """
                             }
                         }
                     }
@@ -79,28 +87,21 @@ pipeline {
                             echo "MongoDB pod already exists — deleting to redeploy..."
                             kubectl --kubeconfig ${env.KUBECONFIG_PATH} delete pod mongo-lite -n ${env.K8S_NAMESPACE} || true
                         fi
-
                         echo "Creating lightweight MongoDB pod..."
                         kubectl --kubeconfig ${env.KUBECONFIG_PATH} apply -f Manifest-AWS/mongodb.yaml -n ${env.K8S_NAMESPACE}
                     """
 
-                    // Deploy Backend
-                    env.BACKEND_IMAGE_URI = "${env.BACKEND_ECR_URL}:${env.BUILD_TAG}"
-                    if (env.BACKEND_IMAGE_URI) {
-                        sh """
-                            sed -i 's|image:.*${env.BACKEND_ECR_REPOSITORY_NAME}:.*|image: ${env.BACKEND_IMAGE_URI}|g' Manifest-AWS/backend.yaml
-                            kubectl --kubeconfig ${env.KUBECONFIG_PATH} apply -f Manifest-AWS/backend.yaml -n ${env.K8S_NAMESPACE}
-                        """
-                    }
+                    // Deploy Backend (use :latest)
+                    sh """
+                        sed -i 's|image:.*${env.BACKEND_ECR_REPOSITORY_NAME}:.*|image: ${env.BACKEND_ECR_URL}:latest|g' Manifest-AWS/backend.yaml
+                        kubectl --kubeconfig ${env.KUBECONFIG_PATH} apply -f Manifest-AWS/backend.yaml -n ${env.K8S_NAMESPACE}
+                    """
 
-                    // Deploy Frontend
-                    env.FRONTEND_IMAGE_URI = "${env.FRONTEND_ECR_URL}:${env.BUILD_TAG}"
-                    if (env.FRONTEND_IMAGE_URI) {
-                        sh """
-                            sed -i 's|image:.*${env.FRONTEND_ECR_REPOSITORY_NAME}:.*|image: ${env.FRONTEND_IMAGE_URI}|g' Manifest-AWS/frontend.yaml
-                            kubectl --kubeconfig ${env.KUBECONFIG_PATH} apply -f Manifest-AWS/frontend.yaml -n ${env.K8S_NAMESPACE}
-                        """
-                    }
+                    // Deploy Frontend (use :latest)
+                    sh """
+                        sed -i 's|image:.*${env.FRONTEND_ECR_REPOSITORY_NAME}:.*|image: ${env.FRONTEND_ECR_URL}:latest|g' Manifest-AWS/frontend.yaml
+                        kubectl --kubeconfig ${env.KUBECONFIG_PATH} apply -f Manifest-AWS/frontend.yaml -n ${env.K8S_NAMESPACE}
+                    """
                 }
             }
         }
@@ -111,11 +112,7 @@ pipeline {
             echo 'Pipeline finished.'
             cleanWs()
         }
-        success {
-            echo 'Pipeline Succeeded!'
-        }
-        failure {
-            echo 'Pipeline Failed!'
-        }
+        success { echo 'Pipeline Succeeded!' }
+        failure { echo 'Pipeline Failed!' }
     }
 }
