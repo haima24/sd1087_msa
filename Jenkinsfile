@@ -81,7 +81,7 @@ pipeline {
                         fi
 
                         echo "Creating lightweight MongoDB pod..."
-                        kubectl --kubeconfig ${env.KUBECONFIG_PATH} apply -f Manifest-AWS/mongo-lite.yaml -n ${env.K8S_NAMESPACE}
+                        kubectl --kubeconfig ${env.KUBECONFIG_PATH} apply -f Manifest-AWS/mongodb.yaml -n ${env.K8S_NAMESPACE}
                     """
 
                     // Deploy Backend
