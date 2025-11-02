@@ -7,9 +7,9 @@ spec:
   project: default
 
   source:
-    repoURL: https://github.com/ngocdung12112000/sd5804_aws_infrastructure.git
+    repoURL: https://github.com/haima24/sd1087_msa
     targetRevision: HEAD
-    path: Manifest
+    path: Manifest-Azure
   destination: 
     server: https://kubernetes.default.svc
     namespace: argoapp
