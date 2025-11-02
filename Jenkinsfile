@@ -73,10 +73,10 @@ pipeline {
         stage('Deploy to EKS') {
             steps {
                 script {
-                    // Deploy or update lightweight MongoDB pod (single pod for free tier)
+                    // Deploy or update lightweight MongoDB pod
                     sh """
                         if kubectl --kubeconfig ${env.KUBECONFIG_PATH} get pod mongo-lite -n ${env.K8S_NAMESPACE} >/dev/null 2>&1; then
-                            echo "MongoDB pod already exists — restarting if needed..."
+                            echo "MongoDB pod already exists — deleting to redeploy..."
                             kubectl --kubeconfig ${env.KUBECONFIG_PATH} delete pod mongo-lite -n ${env.K8S_NAMESPACE} || true
                         fi
 
@@ -114,3 +114,8 @@ pipeline {
         success {
             echo 'Pipeline Succeeded!'
         }
+        failure {
+            echo 'Pipeline Failed!'
+        }
+    }
+}
