@@ -1,27 +1,16 @@
----
-apiVersion: storage.k8s.io/v1
-kind: StorageClass
-metadata:
-  name: mongo-sc
-provisioner: kubernetes.io/aws-ebs
-parameters:
-  type: gp2
-volumeBindingMode: WaitForFirstConsumer
-
----
 apiVersion: v1
 kind: Service
 metadata:
   name: mongo
-  labels:
-    name: mongo
 spec:
   selector:
-    name: mongo
+    app: mongo
   ports:
     - port: 27017
-      protocol: TCP
       targetPort: 27017
+      protocol: TCP
+  type: ClusterIP
+
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -29,6 +18,7 @@ metadata:
   name: mongo-config
 data:
   MONGODB_INITDB_ROOT_USERNAME: "user"
+
 ---
 apiVersion: v1
 kind: Secret
@@ -36,46 +26,45 @@ metadata:
   name: mongo-secrets
 type: Opaque
 data:
-  MONGODB_INITDB_ROOT_PASSWORD: cGFzc3dvcmQK
+  MONGODB_INITDB_ROOT_PASSWORD: cGFzc3dvcmQ=   # base64 for "password"
+
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: mongo
 spec:
-  selector:
-    matchLabels:
-      name: mongo
   serviceName: "mongo"
   replicas: 1
+  selector:
+    matchLabels:
+      app: mongo
   template:
     metadata:
       labels:
-        name: mongo
+        app: mongo
     spec:
       terminationGracePeriodSeconds: 10
       containers:
       - name: mongo
-        image: mongo
+        image: mongo:6.0
         ports:
           - containerPort: 27017
         envFrom:
-         - configMapRef:             
-               name: mongo-config
+         - configMapRef:
+             name: mongo-config
          - secretRef:
              name: mongo-secrets
         volumeMounts:
-            - name: data-volume
-              mountPath: /data/db
+          - name: mongo-data
+            mountPath: /data/db
   volumeClaimTemplates:
     - metadata:
-        name: data-volume
+        name: mongo-data
       spec:
-        storageClassName: mongo-sc
-        accessModes:
-          - "ReadWriteOnce"
+        accessModes: ["ReadWriteOnce"]
         resources:
           requests:
-            storage: "1Gi"
-
-
+            storage: 10Gi
+        # Use AKS default storage class for dynamic provisioning
+        # Or explicitly: storageClassName: managed-csi

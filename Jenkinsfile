@@ -1,4 +1,3 @@
-// Jenkinsfile
 pipeline {
     agent any
 
@@ -12,17 +11,16 @@ pipeline {
         FRONTEND_ECR_URL            = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${FRONTEND_ECR_REPOSITORY_NAME}"
         BACKEND_ECR_URL             = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${BACKEND_ECR_REPOSITORY_NAME}"
         KUBECONFIG_PATH             = '/var/lib/jenkins/.kube/config'
+        MONGODB_IMAGE               = "mongo:6.0"
     }
 
     stages {
         stage('Checkout') {
             steps {
-                // Retry checkout up to 2 times if it fails (e.g., after Jenkins restart)
                 retry(2) {
                     checkout scm
                 }
                 script {
-                    // Create a unique build tag
                     env.BUILD_TAG = "ver-${BUILD_NUMBER}"
                     echo "Build Tag: ${env.BUILD_TAG}"
                 }
@@ -55,6 +53,7 @@ pipeline {
                         }
                     }
                 }
+
                 stage('Build & Push Frontend Image') {
                     when { expression { fileExists 'frontend/Dockerfile' } }
                     steps {
@@ -76,30 +75,36 @@ pipeline {
         stage('Deploy to EKS') {
             steps {
                 script {
+                    // Deploy or update MongoDB
                     sh """
-                        cat Manifest-AWS/mongodb.yaml
-                        kubectl --kubeconfig ${env.KUBECONFIG_PATH} apply -f Manifest-AWS/mongodb.yaml --namespace=${env.K8S_NAMESPACE}
+                        if kubectl --kubeconfig ${env.KUBECONFIG_PATH} get statefulset mongo -n ${env.K8S_NAMESPACE} >/dev/null 2>&1; then
+                            echo "Updating existing MongoDB StatefulSet image..."
+                            kubectl --kubeconfig ${env.KUBECONFIG_PATH} set image statefulset/mongo mongo=${env.MONGODB_IMAGE} -n ${env.K8S_NAMESPACE}
+                        else
+                            echo "MongoDB StatefulSet not found — creating new one..."
+                            kubectl --kubeconfig ${env.KUBECONFIG_PATH} apply -f Manifest-AWS/mongodb.yaml -n ${env.K8S_NAMESPACE}
+                        fi
                     """
 
+                    // Deploy Backend
                     env.BACKEND_IMAGE_URI = "${env.BACKEND_ECR_URL}:${env.BUILD_TAG}"
                     if (env.BACKEND_IMAGE_URI) {
                         echo "Deploying Backend: ${env.BACKEND_IMAGE_URI}"
                         sh """
-                        sed -i 's|image:.*${env.BACKEND_ECR_REPOSITORY_NAME}:.*|image: ${env.BACKEND_IMAGE_URI}|g' Manifest-AWS/backend.yaml
-                        cat Manifest-AWS/backend.yaml
-                        kubectl --kubeconfig ${env.KUBECONFIG_PATH} apply -f Manifest-AWS/backend.yaml --namespace=${env.K8S_NAMESPACE}
+                            sed -i 's|image:.*${env.BACKEND_ECR_REPOSITORY_NAME}:.*|image: ${env.BACKEND_IMAGE_URI}|g' Manifest-AWS/backend.yaml
+                            kubectl --kubeconfig ${env.KUBECONFIG_PATH} apply -f Manifest-AWS/backend.yaml -n ${env.K8S_NAMESPACE}
                         """
                     } else {
                         echo "Backend image URI not found. Skipping backend deployment."
                     }
 
+                    // Deploy Frontend
                     env.FRONTEND_IMAGE_URI = "${env.FRONTEND_ECR_URL}:${env.BUILD_TAG}"
                     if (env.FRONTEND_IMAGE_URI) {
                         echo "Deploying Frontend: ${env.FRONTEND_IMAGE_URI}"
                         sh """
-                        sed -i 's|image:.*${env.FRONTEND_ECR_REPOSITORY_NAME}:.*|image: ${env.FRONTEND_IMAGE_URI}|g' Manifest-AWS/frontend.yaml
-                        cat Manifest-AWS/frontend.yaml
-                        kubectl --kubeconfig ${env.KUBECONFIG_PATH} apply -f Manifest-AWS/frontend.yaml --namespace=${env.K8S_NAMESPACE}
+                            sed -i 's|image:.*${env.FRONTEND_ECR_REPOSITORY_NAME}:.*|image: ${env.FRONTEND_IMAGE_URI}|g' Manifest-AWS/frontend.yaml
+                            kubectl --kubeconfig ${env.KUBECONFIG_PATH} apply -f Manifest-AWS/frontend.yaml -n ${env.K8S_NAMESPACE}
                         """
                     } else {
                         echo "Frontend image URI not found. Skipping frontend deployment."
@@ -112,7 +117,7 @@ pipeline {
     post {
         always {
             echo 'Pipeline finished.'
-            cleanWs() // Clean up workspace after every build to prevent disk issues
+            cleanWs()
         }
         success {
             echo 'Pipeline Succeeded!'
