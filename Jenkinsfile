@@ -47,7 +47,6 @@ pipeline {
                                 echo "Building Backend Image: ${fullImageName}"
                                 sh "aws ecr get-login-password --region ${env.AWS_REGION} | docker login --username AWS --password-stdin ${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
                                 docker.build(fullImageName, ".")
-                                echo "Pushing Backend Image: ${fullImageName}"
                                 docker.image(fullImageName).push()
                             }
                         }
@@ -63,7 +62,6 @@ pipeline {
                                 echo "Building Frontend Image: ${fullImageName}"
                                 sh "aws ecr get-login-password --region ${env.AWS_REGION} | docker login --username AWS --password-stdin ${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
                                 docker.build(fullImageName, ".")
-                                echo "Pushing Frontend Image: ${fullImageName}"
                                 docker.image(fullImageName).push()
                             }
                         }
@@ -75,39 +73,33 @@ pipeline {
         stage('Deploy to EKS') {
             steps {
                 script {
-                    // Deploy or update MongoDB
+                    // Deploy or update lightweight MongoDB pod (single pod for free tier)
                     sh """
-                        if kubectl --kubeconfig ${env.KUBECONFIG_PATH} get statefulset mongo -n ${env.K8S_NAMESPACE} >/dev/null 2>&1; then
-                            echo "Updating existing MongoDB StatefulSet image..."
-                            kubectl --kubeconfig ${env.KUBECONFIG_PATH} set image statefulset/mongo mongo=${env.MONGODB_IMAGE} -n ${env.K8S_NAMESPACE}
-                        else
-                            echo "MongoDB StatefulSet not found — creating new one..."
-                            kubectl --kubeconfig ${env.KUBECONFIG_PATH} apply -f Manifest-AWS/mongodb.yaml -n ${env.K8S_NAMESPACE}
+                        if kubectl --kubeconfig ${env.KUBECONFIG_PATH} get pod mongo-lite -n ${env.K8S_NAMESPACE} >/dev/null 2>&1; then
+                            echo "MongoDB pod already exists — restarting if needed..."
+                            kubectl --kubeconfig ${env.KUBECONFIG_PATH} delete pod mongo-lite -n ${env.K8S_NAMESPACE} || true
                         fi
+
+                        echo "Creating lightweight MongoDB pod..."
+                        kubectl --kubeconfig ${env.KUBECONFIG_PATH} apply -f Manifest-AWS/mongo-lite.yaml -n ${env.K8S_NAMESPACE}
                     """
 
                     // Deploy Backend
                     env.BACKEND_IMAGE_URI = "${env.BACKEND_ECR_URL}:${env.BUILD_TAG}"
                     if (env.BACKEND_IMAGE_URI) {
-                        echo "Deploying Backend: ${env.BACKEND_IMAGE_URI}"
                         sh """
                             sed -i 's|image:.*${env.BACKEND_ECR_REPOSITORY_NAME}:.*|image: ${env.BACKEND_IMAGE_URI}|g' Manifest-AWS/backend.yaml
                             kubectl --kubeconfig ${env.KUBECONFIG_PATH} apply -f Manifest-AWS/backend.yaml -n ${env.K8S_NAMESPACE}
                         """
-                    } else {
-                        echo "Backend image URI not found. Skipping backend deployment."
                     }
 
                     // Deploy Frontend
                     env.FRONTEND_IMAGE_URI = "${env.FRONTEND_ECR_URL}:${env.BUILD_TAG}"
                     if (env.FRONTEND_IMAGE_URI) {
-                        echo "Deploying Frontend: ${env.FRONTEND_IMAGE_URI}"
                         sh """
                             sed -i 's|image:.*${env.FRONTEND_ECR_REPOSITORY_NAME}:.*|image: ${env.FRONTEND_IMAGE_URI}|g' Manifest-AWS/frontend.yaml
                             kubectl --kubeconfig ${env.KUBECONFIG_PATH} apply -f Manifest-AWS/frontend.yaml -n ${env.K8S_NAMESPACE}
                         """
-                    } else {
-                        echo "Frontend image URI not found. Skipping frontend deployment."
                     }
                 }
             }
@@ -122,8 +114,3 @@ pipeline {
         success {
             echo 'Pipeline Succeeded!'
         }
-        failure {
-            echo 'Pipeline Failed!'
-        }
-    }
-}

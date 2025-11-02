@@ -1,10 +1,11 @@
+---
 apiVersion: v1
 kind: Service
 metadata:
   name: mongo
 spec:
   selector:
-    app: mongo
+    app: mongo-lite
   ports:
     - port: 27017
       targetPort: 27017
@@ -29,42 +30,27 @@ data:
   MONGODB_INITDB_ROOT_PASSWORD: cGFzc3dvcmQ=   # base64 for "password"
 
 ---
-apiVersion: apps/v1
-kind: StatefulSet
+apiVersion: v1
+kind: Pod
 metadata:
-  name: mongo
+  name: mongo-lite
+  labels:
+    app: mongo-lite
 spec:
-  serviceName: "mongo"
-  replicas: 1
-  selector:
-    matchLabels:
-      app: mongo
-  template:
-    metadata:
-      labels:
-        app: mongo
-    spec:
-      terminationGracePeriodSeconds: 10
-      containers:
-      - name: mongo
-        image: mongo:6.0
-        ports:
-          - containerPort: 27017
-        envFrom:
-         - configMapRef:
-             name: mongo-config
-         - secretRef:
-             name: mongo-secrets
-        volumeMounts:
-          - name: mongo-data
-            mountPath: /data/db
-  volumeClaimTemplates:
-    - metadata:
-        name: mongo-data
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 10Gi
-        # Use AKS default storage class for dynamic provisioning
-        # Or explicitly: storageClassName: managed-csi
+  terminationGracePeriodSeconds: 10
+  containers:
+  - name: mongo
+    image: mongo:6.0
+    ports:
+      - containerPort: 27017
+    envFrom:
+      - configMapRef:
+          name: mongo-config
+      - secretRef:
+          name: mongo-secrets
+    volumeMounts:
+      - name: mongo-data
+        mountPath: /data/db
+  volumes:
+    - name: mongo-data
+      emptyDir: {}
