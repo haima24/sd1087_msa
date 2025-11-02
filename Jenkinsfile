@@ -37,40 +37,46 @@ pipeline {
         stage('Build and Push Docker Images') {
             parallel {
                 stage('Build & Push Backend Image') {
-                    when { expression { fileExists 'backend/Dockerfile' } }
                     steps {
-                        dir('backend') {
-                            script {
-                                def buildImage = "${env.BACKEND_ECR_URL}:${env.BUILD_TAG}"
-                                def latestImage = "${env.BACKEND_ECR_URL}:latest"
-                                echo "Building Backend Image: ${buildImage}"
-                                sh """
-                                    aws ecr get-login-password --region ${env.AWS_REGION} | docker login --username AWS --password-stdin ${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com
-                                    docker build -t ${buildImage} .
-                                    docker push ${buildImage}
-                                    docker tag ${buildImage} ${latestImage}
-                                    docker push ${latestImage}
-                                """
+                        script {
+                            if (fileExists('src/backend/Dockerfile')) {
+                                echo "Dockerfile found for Backend, building image..."
+                                dir('src/backend') {
+                                    def buildImage = "${env.BACKEND_ECR_URL}:${env.BUILD_TAG}"
+                                    def latestImage = "${env.BACKEND_ECR_URL}:latest"
+                                    sh """
+                                        aws ecr get-login-password --region ${env.AWS_REGION} | docker login --username AWS --password-stdin ${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com
+                                        docker build -t ${buildImage} .
+                                        docker push ${buildImage}
+                                        docker tag ${buildImage} ${latestImage}
+                                        docker push ${latestImage}
+                                    """
+                                }
+                            } else {
+                                echo "WARNING: Backend Dockerfile not found at src/backend/Dockerfile, skipping build."
                             }
                         }
                     }
                 }
 
                 stage('Build & Push Frontend Image') {
-                    when { expression { fileExists 'frontend/Dockerfile' } }
                     steps {
-                        dir('frontend') {
-                            script {
-                                def buildImage = "${env.FRONTEND_ECR_URL}:${env.BUILD_TAG}"
-                                def latestImage = "${env.FRONTEND_ECR_URL}:latest"
-                                echo "Building Frontend Image: ${buildImage}"
-                                sh """
-                                    aws ecr get-login-password --region ${env.AWS_REGION} | docker login --username AWS --password-stdin ${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com
-                                    docker build -t ${buildImage} .
-                                    docker push ${buildImage}
-                                    docker tag ${buildImage} ${latestImage}
-                                    docker push ${latestImage}
-                                """
+                        script {
+                            if (fileExists('src/frontend/Dockerfile')) {
+                                echo "Dockerfile found for Frontend, building image..."
+                                dir('src/frontend') {
+                                    def buildImage = "${env.FRONTEND_ECR_URL}:${env.BUILD_TAG}"
+                                    def latestImage = "${env.FRONTEND_ECR_URL}:latest"
+                                    sh """
+                                        aws ecr get-login-password --region ${env.AWS_REGION} | docker login --username AWS --password-stdin ${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com
+                                        docker build -t ${buildImage} .
+                                        docker push ${buildImage}
+                                        docker tag ${buildImage} ${latestImage}
+                                        docker push ${latestImage}
+                                    """
+                                }
+                            } else {
+                                echo "WARNING: Frontend Dockerfile not found at src/frontend/Dockerfile, skipping build."
                             }
                         }
                     }
@@ -81,7 +87,7 @@ pipeline {
         stage('Deploy to EKS') {
             steps {
                 script {
-                    // Deploy or update lightweight MongoDB pod
+                    // Deploy MongoDB pod
                     sh """
                         if kubectl --kubeconfig ${env.KUBECONFIG_PATH} get pod mongo-lite -n ${env.K8S_NAMESPACE} >/dev/null 2>&1; then
                             echo "MongoDB pod already exists — deleting to redeploy..."
@@ -91,13 +97,13 @@ pipeline {
                         kubectl --kubeconfig ${env.KUBECONFIG_PATH} apply -f Manifest-AWS/mongodb.yaml -n ${env.K8S_NAMESPACE}
                     """
 
-                    // Deploy Backend (use :latest)
+                    // Deploy Backend
                     sh """
                         sed -i 's|image:.*${env.BACKEND_ECR_REPOSITORY_NAME}:.*|image: ${env.BACKEND_ECR_URL}:latest|g' Manifest-AWS/backend.yaml
                         kubectl --kubeconfig ${env.KUBECONFIG_PATH} apply -f Manifest-AWS/backend.yaml -n ${env.K8S_NAMESPACE}
                     """
 
-                    // Deploy Frontend (use :latest)
+                    // Deploy Frontend
                     sh """
                         sed -i 's|image:.*${env.FRONTEND_ECR_REPOSITORY_NAME}:.*|image: ${env.FRONTEND_ECR_URL}:latest|g' Manifest-AWS/frontend.yaml
                         kubectl --kubeconfig ${env.KUBECONFIG_PATH} apply -f Manifest-AWS/frontend.yaml -n ${env.K8S_NAMESPACE}
